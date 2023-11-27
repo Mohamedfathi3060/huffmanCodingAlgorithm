@@ -10,12 +10,6 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 
 
-import javax.swing.*;
-import java.awt.*;
-import java.awt.event.*;
-
-import static java.lang.Thread.sleep;
-
 class Node {
     public int freq;
     public char character;
@@ -43,6 +37,31 @@ public class Main {
         recursion(node.left,node.code + '0');
         recursion(node.right,node.code + '1');
     }
+    private static byte[] stringToBytes(String s){
+        // Ensure that the binary string length is a multiple of 8
+
+        if (s.length() % 8 != 0) {
+            int paddingLength = 8 - s.length()%8;
+            StringBuilder padding = new StringBuilder();
+            for (int i = 0; i < paddingLength; i++) {
+                padding.append('0');
+            }
+            s = s + padding.toString();
+        }
+
+        // Create an array to store the bytes
+        byte[] byteArray = new byte[s.length() / 8];
+
+        // Convert each group of 8 binary digits to a byte
+        for (int i = 0; i < s.length(); i += 8) {
+            String binaryByte = s.substring(i, i + 8);
+            byte decimalValue = (byte) Integer.parseInt(binaryByte, 2);
+            byteArray[i / 8] = decimalValue;
+        }
+
+        return byteArray;
+    }
+
     public static void comp(File file) throws FileNotFoundException{
         Scanner read  = new Scanner(file);
         String data ="";
@@ -64,15 +83,8 @@ public class Main {
             }
         }
         for ( Character c : MAP.keySet()){
-//            System.out.println("char " + c + " -> "+ MAP.get(c).freq);
             Q.add(MAP.get(c));
         }
-        // output Q sorted values
-//        while ( !Q.isEmpty()){
-//            System.out.println("char " + Q.peek().character + " -> "+ Q.peek().freq);
-//            Q.poll();
-//        }
-
 
         // build Tree
         while (Q.size() > 1){
@@ -91,178 +103,108 @@ public class Main {
         recursion(root,"");
 
         // set Overhead table to result value
+        HashMap<String,Character>  obj = new HashMap<>();
         for ( Character c : MAP.keySet()){
-            String x = Integer.toBinaryString(c);
-            System.out.println(c +" -> "+MAP.get(c).code);
-            // add 00000 to right of code to prevent Error in reading
-            result +=  setBitRight(MAP.get(c).code);
-            result +=  charToBin(x);
+            obj.put(MAP.get(c).code,c);
         }
-
-        // sign to indicate reach end of the MAP data
-        result += "11111111";
-
         Node x;
         // iterate over data again to write each char code to file
         for (int i = 0; i < data.length(); i++) {
-                x = MAP.get(data.charAt(i));
-                // add node code to file
-                result += x.code;
+            x = MAP.get(data.charAt(i));
+            // add node code to file
+            result += x.code;
+        }
+
+        try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream("comp.huff"))) {
+            oos.writeObject(obj);
+
+            // sign to indicate reach end of the MAP data
+            oos.writeByte(0xFF);
+
+
+            byte[] binaryData = stringToBytes(result);
+            oos.write(binaryData);
+        } catch (IOException e) {
+            e.printStackTrace();
         }
         System.out.println(result);
-        // write to file
-        writeBitsToFile("comp.huff",result);
     }
-    public static void deComp(String file) throws IOException{
-        String data = readBitsFromFile(file);
-        HashMap<String,Character> MAP = new HashMap<>();
-        String result ="";
-        int i = 0 ;
-        String x = "";
-        while (!data.substring(i, i + 8).equals("11111111")){
-            x = data.substring(i,i+8);
-            MAP.put(x,(char) Integer.parseInt(data.substring(i+8,i+16),2));
-            i+=16;
-        }
-        for (String s : MAP.keySet()){
-            System.out.println(MAP.get(s) + " -> "+ s);
-        }
-        int  j = i+1 ;
-        while (i  < data.length() && j <= data.length()){
-            x = data.substring(i,j);
-            x = setBitRight(x);
-            if(MAP.containsKey(x)){
-                // code found
-                result += MAP.get(x);
-                i = j ;
+    public static void deComp(String file) throws IOException {
+        HashMap<String, Character> MAP = new HashMap<>();
+        byte[] binaryData ;
+        try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(file))) {
+            // Deserialize the object
+            Object obj = ois.readObject();
+
+            if (obj instanceof HashMap) {
+                MAP = (HashMap<String, Character>) obj ;
+            } else {
+                System.out.println("Error happened");
+                return;
             }
-            j++;
-        }
 
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter("decomp.txt"))) {
-            // Write the entire big string to the file
-            writer.write(result);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-
-    }
-    private static String charToBin(String x){
-        int paddingLength = 8 - x.length();
-        if (paddingLength > 0) {
-            StringBuilder padding = new StringBuilder();
-            for (int i = 0; i < paddingLength; i++) {
-                padding.append('0');
+            // Read the delimiter (0xFF)
+            int delimiter = ois.readUnsignedByte();
+            if (delimiter != 0xFF) {
+                System.out.println("Error happened");
+                return;
             }
-            x = padding.toString() + x;
-        }
-        return x ;
-    }
-    private static String setBitRight(String x){
-        int paddingLength = 8 - x.length();
-        if (paddingLength > 0) {
-            StringBuilder padding = new StringBuilder();
-            for (int i = 0; i < paddingLength; i++) {
-                padding.append('0');
-            }
-            x = x + padding.toString();
-        }
-        return x ;
-    }
-    private static void writeBitsToFile(String fileName, String bits) {
-        try (FileOutputStream fos = new FileOutputStream(fileName)) {
-            int currentByte = 0;
-            int bitsCount = 0;
+            // Read regular binary data
+            binaryData = new byte[ois.available()];
+            ois.read(binaryData);
 
-            for (char bitChar : bits.toCharArray()) {
-                if (bitChar == '1') {
-                    currentByte = (currentByte << 1) | 1;
-                } else if (bitChar == '0') {
-                    currentByte = (currentByte << 1);
-                } else {
-                    // Ignore non-binary characters
-                    continue;
+        }
+        catch (ClassNotFoundException e) {
+            throw new RuntimeException(e);
+        }
+
+            ///////////////////////////////////////////////////////
+        StringBuilder binaryStringBuilder = new StringBuilder() ;
+        for (byte x : binaryData){
+            binaryStringBuilder.append(String.format("%8s", Integer.toBinaryString(x & 0xFF)).replace(' ', '0'));
+
+        }
+            String data = binaryStringBuilder.toString();
+            String result = "";
+            String x = "";
+
+            for (String s : MAP.keySet()) {
+                System.out.println(MAP.get(s) + " -> " + s);
+            }
+            int i = 0;
+            int j = i + 1;
+            while (i < data.length() && j <= data.length()) {
+                x = data.substring(i, j);
+                if (MAP.containsKey(x)) {
+                    // code found
+                    result += MAP.get(x);
+                    i = j;
                 }
-
-                bitsCount++;
-
-                // Write the current byte when 8 bits are accumulated
-                if (bitsCount == 8) {
-                    fos.write(currentByte);
-                    currentByte = 0;
-                    bitsCount = 0;
-                }
+                j++;
+            }
+        System.out.println(result);
+            try (BufferedWriter writer = new BufferedWriter(new FileWriter("decomp.txt"))) {
+                // Write the entire big string to the file
+                writer.write(result);
+            } catch (IOException e) {
+                e.printStackTrace();
             }
 
-            // If there are remaining bits, pad with zeros and write the last byte
-            if (bitsCount > 0) {
-                currentByte <<= (8 - bitsCount);
-                fos.write(currentByte);
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-    private static String readBitsFromFile(String fileName) {
-        StringBuilder result = new StringBuilder();
 
-        try (FileInputStream fis = new FileInputStream(fileName)) {
-            int currentByte;
 
-            while ((currentByte = fis.read()) != -1) {
-                for (int i = 7; i >= 0; i--) {
-                    int bit = (currentByte >> i) & 1;
-                    result.append(bit);
-                }
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-        return result.toString();
     }
 
     public static void main(String[] args) throws IOException, InterruptedException {
-//        String data = "ABBCCCDDDDFFFFF";
-//        PriorityQueue<Node> Q = new PriorityQueue<>(new the_comparator());
-//        HashMap<Character,Node>  MAP = new HashMap<>();
-//        for (int i = 0; i < data.length(); i++) {
-//            if(MAP.containsKey(data.charAt(i))){
-//                MAP.get(data.charAt(i)).freq++;
-//
-//            }
-//            else{
-//                Node x = new Node();
-//                x.character = data.charAt(i);
-//                MAP.put(data.charAt(i),x);
-//
-//            }
-//        }
-//        for ( Character c : MAP.keySet()){
-////            System.out.println("char " + c + " -> "+ MAP.get(c).freq);
-//            Q.add(MAP.get(c));
-//        }
-//
-//        String x = Integer.toBinaryString(' ') ;
-//        int paddingLength = 8 - x.length();
-//        if (paddingLength > 0) {
-//            StringBuilder padding = new StringBuilder();
-//            for (int i = 0; i < paddingLength; i++) {
-//                padding.append('0');
-//            }
-//            x = padding.toString() + x;
-//        }
-//        System.out.println(x);
+
 //        File x = new File("data.txt");
 //        comp(x);
-        deComp("comp.huff");
+//        deComp("comp.huff");
 
-       // SwingUtilities.invokeLater(Main::createAndShowGUI);
+       SwingUtilities.invokeLater(Main::createAndShowGUI);
     }
 
     private static void createAndShowGUI() {
-        JFrame frame = new JFrame("File Compression App");
+        JFrame frame = new JFrame("HuffMan Compression App");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setMinimumSize(new Dimension(700, 500));
 
@@ -298,7 +240,7 @@ public class Main {
         browseButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                JFileChooser fileChooser = new JFileChooser("M:\\java library\\LZW\\LZW_implementation");
+                JFileChooser fileChooser = new JFileChooser("M:\\java library\\huffmanCodingAlgorithm\\huffman coding algorithm");
                 int result = fileChooser.showOpenDialog(frame);
                 if (result == JFileChooser.APPROVE_OPTION) {
                     File selectedFile = fileChooser.getSelectedFile();
@@ -327,7 +269,6 @@ public class Main {
             @Override
             public void actionPerformed(ActionEvent e) {
                 // Implement decompression logic here
-                FileInputStream file = null;
                 try {
 //                    file = new FileInputStream(textArea.getText());
                     deComp(textArea.getText());
